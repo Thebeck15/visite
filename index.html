@@ -239,16 +239,81 @@ function summary(v){const L=[`Visite de chantier du ${frDate(v.date)}${v.auteur?
   if(v.metiers.length)L.push('Métiers : '+v.metiers.map(m=>`${m.m}${m.n||m.h?` (${m.n||'?'} pers. × ${m.h||'?'} h)`:''}`).join(', '));
   if(v.echaf.need)L.push('Échafaudage : oui'+(v.echaf.note?' – '+v.echaf.note:''));
   if(v.pieces.length)L.push('Pièces : '+v.pieces.filter(p=>p.des).map(p=>`${p.q||1} × ${p.des}`).join(', '));
-  L.push('',`${v.photos.length} photo(s). Fichier joint à importer dans Prépa chantiers (onglet Visites).`);return L.filter((x,i,a)=>!(x===''&&a[i-1]==='')).join('\n');}
-function fileOf(v){const name=`Visite_${v.date}_${(v.equip||v.lieu||'chantier').replace(/[^\w\-]+/g,'_').slice(0,40)}.txt`;
-  const data=JSON.stringify({app:'prepa-visite',v:1,visite:Object.assign({},v,{statut:'À traiter'})});return new File([data],name,{type:'text/plain'});}
-async function send(){const v=V[cur];if(!v)return;await saveNow();const f=fileOf(v);const mb=(f.size/1048576).toFixed(1);
+  L.push('',`${v.photos.length} photo(s). PDF joint : à importer dans Prépa chantiers (onglet Visites).`);return L.filter((x,i,a)=>!(x===''&&a[i-1]==='')).join('\n');}
+/* ---------- PDF : compte rendu lisible + données importables dans Prépa chantiers ---------- */
+const HW=[278,278,355,556,556,889,667,191,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,1015,667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,469,556,333,556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,584];
+const CP={'€':0x80,'‚':0x82,'„':0x84,'…':0x85,'‘':0x91,'’':0x92,'“':0x93,'”':0x94,'•':0x95,'–':0x96,'—':0x97,'œ':0x9c,'Œ':0x8c,'Ÿ':0x9f};
+const encC=ch=>{const c=ch.charCodeAt(0);if(c>=32&&c<127)return c;if(CP[ch])return CP[ch];if(c>=160&&c<256)return c;return 63;};
+const chW=ch=>{let c=ch.charCodeAt(0);if(c<32||c>126){const b=(ch.normalize('NFD')[0]||'n').charCodeAt(0);c=(b>=32&&b<=126)?b:110;}return HW[c-32];};
+const tw=(s,sz,bd)=>[...s].reduce((w,ch)=>w+chW(ch),0)*sz/1000*(bd?1.07:1);
+function wrapT(t,sz,mw,bd){const out=[];String(t||'').replace(/\t/g,' ').split('\n').forEach(par=>{let line='';par.split(' ').forEach(w=>{const tst=line?line+' '+w:w;if(tw(tst,sz,bd)<=mw||!line){if(tw(w,sz,bd)>mw&&!line){let p='';for(const ch of w){if(tw(p+ch,sz,bd)>mw){out.push(p);p=ch;}else p+=ch;}line=p;}else line=tst;}else{out.push(line);line=w;}});out.push(line);});return out;}
+const pStr=s=>'('+[...String(s)].map(ch=>{const c=encC(ch);return c===40||c===41||c===92?'\\'+String.fromCharCode(c):String.fromCharCode(c);}).join('')+')';
+const l1=s=>{const u=new Uint8Array(s.length);for(let i=0;i<s.length;i++)u[i]=s.charCodeAt(i)&255;return u;};
+const b64u8=d=>{const b=atob(d.split(',')[1]);const u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return u;};
+async function makePDF(v){
+  const W=595,H=842,M=40,CW=W-2*M;const pages=[];let pg=null,y=0;const imgs=[];
+  const np=()=>{pg={c:'',im:[]};pages.push(pg);y=H-M;};
+  const col=h=>{const n=parseInt(h.slice(1),16);return [(n>>16&255)/255,(n>>8&255)/255,(n&255)/255].map(x=>x.toFixed(3)).join(' ');};
+  const txt=(x,yy,s,sz,bd,c)=>{pg.c+=`BT /${bd?'F2':'F1'} ${sz} Tf ${col(c||'#1a1f27')} rg ${x.toFixed(1)} ${yy.toFixed(1)} Td ${pStr(s)} Tj ET\n`;};
+  const rect=(x,yy,w,h,c)=>{pg.c+=`${col(c)} rg ${x.toFixed(1)} ${yy.toFixed(1)} ${w.toFixed(1)} ${h.toFixed(1)} re f\n`;};
+  const need=h=>{if(y-h<M+20){np();}};
+  /* en-tête */
+  np();rect(0,H-64,W,64,'#12171d');for(let i=0;i<W;i+=20){pg.c+=`${col('#ff7a1a')} rg ${i} ${H-70} m ${i+10} ${H-70} l ${i+14} ${H-64} l ${i+4} ${H-64} l f\n`;}
+  txt(M,H-34,'VISITE DE CHANTIER',19,true,'#ffffff');txt(M,H-52,`${frDate(v.date)}${v.auteur?'  ·  '+v.auteur:''}`,10,false,'#c8d0da');
+  y=H-100;
+  txt(M,y,title(v),16,true,'#12171d');y-=18;
+  const meta=[v.atelier?'Atelier / zone : '+v.atelier:'',v.lieu?'Localisation : '+v.lieu:'',v.demandeur?'Avec : '+v.demandeur:''].filter(Boolean);
+  meta.forEach(m=>{wrapT(m,10,CW).forEach(l=>{txt(M,y,l,10,false,'#4a5562');y-=13;});});y-=6;
+  const sec=(t,body)=>{if(!body||!String(body).trim())return;const L=wrapT(body,10.5,CW-10);need(30+Math.min(L.length,3)*13.5);
+    rect(M,y-3,3,14,'#ff7a1a');txt(M+9,y,t.toUpperCase(),11,true,'#12171d');y-=18;
+    L.forEach(l=>{need(14);txt(M+9,y,l,10.5);y-=13.5;});y-=8;};
+  sec('Travaux demandés / constat',v.objet);
+  sec('Risques repérés',RISQ.filter(([k])=>v.risques[k]).map(([,l])=>'• '+l).join('\n'));
+  sec('Corps de métier',v.metiers.map(m=>`• ${m.m}${m.n||m.h?` : ${m.n||'?'} pers. × ${m.h||'?'} h`:''}${m.note?' – '+m.note:''}`).join('\n'));
+  sec('Échafaudage',v.echaf.need?'Nécessaire'+(v.echaf.note?' : '+v.echaf.note:''):'');
+  sec('Outillage spécifique',v.outillage);
+  sec('Pièces à prévoir',v.pieces.filter(p=>p.des).map(p=>`• ${p.q||1} × ${p.des}`).join('\n'));
+  sec('Cotes / mesures',v.cotes);sec('Notes',v.notes);
+  /* photos : 2 par ligne */
+  if(v.photos.length){need(40);rect(M,y-3,3,14,'#ff7a1a');txt(M+9,y,`PHOTOS (${v.photos.length})`,11,true,'#12171d');y-=20;
+    const cw=(CW-14)/2,mh=200;
+    for(let i=0;i<v.photos.length;i+=2){const row=v.photos.slice(i,i+2);const dims=[];
+      for(const p of row){const im=await loadImg(p.img);const r=Math.min(cw/im.naturalWidth,mh/im.naturalHeight);dims.push({w:im.naturalWidth*r,h:im.naturalHeight*r,W:im.naturalWidth,H:im.naturalHeight,p});}
+      const rh=Math.max(...dims.map(d=>d.h))+(row.some(p=>p.legend)?30:10);need(rh);
+      dims.forEach((d,k)=>{const n=imgs.length;imgs.push({data:b64u8(d.p.img),W:d.W,H:d.H,p:d.p});const x=M+k*(cw+14)+(cw-d.w)/2;
+        pg.c+=`q ${d.w.toFixed(1)} 0 0 ${d.h.toFixed(1)} ${x.toFixed(1)} ${(y-d.h).toFixed(1)} cm /Im${n} Do Q\n`;pg.im.push(n);
+        if(d.p.legend)wrapT(d.p.legend,9,cw).slice(0,2).forEach((l,j)=>txt(M+k*(cw+14),y-d.h-12-j*11,l,9,false,'#4a5562'));});
+      y-=rh+6;}}
+  /* écriture du fichier */
+  const parts=[];let off=0;const offs=[];const put=x=>{const u=typeof x==='string'?l1(x):x;parts.push(u);off+=u.length;};
+  const nImg=imgs.length,nPg=pages.length;const first=5,pgObj=first+nImg;const jsonObj=pgObj+2*nPg;const total=jsonObj;
+  const obj=(n,s)=>{offs[n]=off;put(`${n} 0 obj\n${s}\nendobj\n`);};
+  put('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n');
+  obj(1,'<< /Type /Catalog /Pages 2 0 R >>');
+  obj(2,`<< /Type /Pages /Count ${nPg} /Kids [${pages.map((_,i)=>`${pgObj+2*i} 0 R`).join(' ')}] >>`);
+  obj(3,'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
+  obj(4,'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
+  const loc=[];
+  imgs.forEach((im,i)=>{const n=first+i;offs[n]=off;put(`${n} 0 obj\n<< /Type /XObject /Subtype /Image /Width ${im.W} /Height ${im.H} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${im.data.length} >>\nstream\n`);
+    loc[i]={off,len:im.data.length};put(im.data);put('\nendstream\nendobj\n');});
+  pages.forEach((p,i)=>{const pn=pgObj+2*i,cn=pn+1;
+    p.c+=`BT /F1 8 Tf 0.55 0.6 0.65 rg ${M} 22 Td ${pStr(`Visite chantier · ${title(v)} · page ${i+1}/${nPg}  —  fichier importable dans Prépa chantiers (onglet Visites)`)} Tj ET\n`;
+    obj(pn,`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${W} ${H}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> /XObject << ${p.im.map(n=>`/Im${n} ${first+n} 0 R`).join(' ')} >> >> /Contents ${cn} 0 R >>`);
+    const cs=l1(p.c);offs[cn]=off;put(`${cn} 0 obj\n<< /Length ${cs.length} >>\nstream\n`);put(cs);put('\nendstream\nendobj\n');});
+  const data=Object.assign({},v,{statut:'À traiter',photos:v.photos.map((p,i)=>({id:p.id,legend:p.legend,off:loc[i].off,len:loc[i].len}))});
+  const js='%PREPA-VISITE%'+JSON.stringify({app:'prepa-visite',v:2,visite:data}).replace(/[\u007f-￿]/g,c=>'\\u'+c.charCodeAt(0).toString(16).padStart(4,'0'))+'%END%';
+  offs[jsonObj]=off;put(`${jsonObj} 0 obj\n<< /Length ${js.length} >>\nstream\n${js}\nendstream\nendobj\n`);
+  const xref=off;let x=`xref\n0 ${total+1}\n0000000000 65535 f \n`;for(let i=1;i<=total;i++)x+=String(offs[i]).padStart(10,'0')+' 00000 n \n';
+  put(x+`trailer\n<< /Size ${total+1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+  const name=`Visite_${v.date}_${(v.equip||v.lieu||'chantier').normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^\w\-]+/g,'_').slice(0,40)}.pdf`;
+  return new File(parts,name,{type:'application/pdf'});}
+async function send(){const v=V[cur];if(!v)return;await saveNow();toast('Préparation du PDF…');let f;try{f=await makePDF(v);}catch(e){console.error(e);return toast('Erreur à la création du PDF : '+e.message,5000);}const mb=(f.size/1048576).toFixed(1);
   const subj='Visite chantier – '+title(v)+' – '+frDate(v.date);
   if(navigator.canShare&&navigator.canShare({files:[f]})){
     try{await navigator.share({files:[f],title:subj,text:summary(v)});v.statut='Envoyée';v.sentAt=new Date().toISOString();dirty.add(v.id);await saveNow();toast('Visite envoyée ('+mb+' Mo)');keep(renderEdit);return;}
     catch(e){if(e.name==='AbortError')return;}}
-  modal(`<h2>Envoyer la visite</h2><p>Le partage direct n'est pas disponible ici. Télécharge le fichier (${mb} Mo), puis joins-le à un mail Outlook.</p>
-    <div class="row"><button class="btn" data-close>Fermer</button><span class="sp"></span><button class="btn p" id="dl">⬇ Télécharger le fichier</button></div>`,()=>{$('#dl').onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(f);a.download=f.name;document.body.appendChild(a);a.click();a.remove();v.statut='Envoyée';v.sentAt=new Date().toISOString();dirty.add(v.id);saveNow();closeModal();toast('Fichier dans Téléchargements');};});}
+  modal(`<h2>Envoyer la visite</h2><p>Le partage direct n'est pas disponible ici. Télécharge le PDF (${mb} Mo), puis joins-le à un mail Outlook ou à un message Teams.</p>
+    <div class="row"><button class="btn" data-close>Fermer</button><span class="sp"></span><button class="btn p" id="dl">⬇ Télécharger le PDF</button></div>`,()=>{$('#dl').onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(f);a.download=f.name;document.body.appendChild(a);a.click();a.remove();v.statut='Envoyée';v.sentAt=new Date().toISOString();dirty.add(v.id);saveNow();closeModal();toast('Fichier dans Téléchargements');};});}
 $('#bSend').onclick=send;
 
 /* ---------- modale + réglages ---------- */
