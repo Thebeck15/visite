@@ -134,6 +134,13 @@ const DEF_MET=['Échafaudeurs','Calorifugeurs','Nettoyage / hydrocurage','Mécan
 const RISQ=[['consElec','Consignation électrique'],['consProc','Consignation process'],['feu','Permis de feu'],['confine','Espace confiné'],['hauteur','Travail en hauteur'],['atex','Zone ATEX'],['levage','Levage / manutention'],['chimique','Risque chimique']];
 const CFG=Object.assign({auteur:'',copy:true,metiers:DEF_MET,dest:''},LS.get('vis.cfg',{}));
 const saveCfg=()=>LS.set('vis.cfg',CFG);
+/* liste des équipements venue du bureau (TOP PREPA → Bases → 📱 Pour le téléphone) */
+let EQ=LS.get('vis.eqs',{list:{},ts:0});
+function eqFind(s){s=String(s||'').trim().toUpperCase();if(!s)return null;const L=EQ.list||{};const k=Object.keys(L).find(r=>r.toUpperCase()===s)||Object.keys(L).find(r=>s.split(/[\s\-–]+/)[0]===r.toUpperCase());return k?{rep:k,desig:L[k][0],zone:L[k][1],lieu:L[k][2]}:null;}
+async function eqImport(f){try{const j=JSON.parse(await f.text());let list={};
+    if(j.app==='prepa-equips')list=j.list||{};
+    else if(j.db&&j.db.equips)Object.values(j.db.equips).forEach(e=>list[e.rep]=[e.desig||'',e.zone||'',[e.empl,e.emplP].filter(Boolean).join(' – ')]);
+    else throw 0;EQ={list,ts:Date.now()};LS.set('vis.eqs',EQ);toast(Object.keys(list).length+' équipement(s) chargé(s)');return true;}catch(e){toast('Fichier non reconnu : prends « equipements_telephone.json »',5000);return false;}}
 const ST_C={'En cours':'#9aa5b3','Envoyée':'#3ecf74'};
 
 /* ---------- stockage (IndexedDB du téléphone) ---------- */
@@ -160,8 +167,8 @@ function renderList(){const L=Object.values(V).sort((a,b)=>b.ts-a.ts);
 const fi=(p,l,o={})=>`<label class="f">${l}<input data-p="${p}" value="${esc(getP(V[cur],p))}"${o.type?` type="${o.type}"`:''}${o.list?` list="${o.list}"`:''}${o.ph?` placeholder="${esc(o.ph)}"`:''}${o.im?` inputmode="${o.im}"`:''}></label>`;
 const ft=(p,l,ph)=>`<label class="f">${l}<textarea data-p="${p}"${ph?` placeholder="${esc(ph)}"`:''}>${esc(getP(V[cur],p))}</textarea></label>`;
 function renderEdit(){const v=V[cur];const on=new Set(v.metiers.map(m=>m.m));
-  const ats=[...new Set(Object.values(V).map(x=>x.atelier).filter(Boolean))],eqs=[...new Set(Object.values(V).map(x=>x.equip).filter(Boolean))];
-  $('#app').innerHTML=`<datalist id="dlAt">${ats.map(a=>`<option value="${esc(a)}">`).join('')}</datalist><datalist id="dlEq">${eqs.map(a=>`<option value="${esc(a)}">`).join('')}</datalist>
+  const L=EQ.list||{};const ats=[...new Set([...Object.values(V).map(x=>x.atelier),...Object.values(L).map(x=>x[1])].filter(Boolean))],eqs=[...new Set([...Object.keys(L),...Object.values(V).map(x=>x.equip)].filter(Boolean))];
+  $('#app').innerHTML=`<datalist id="dlAt">${ats.map(a=>`<option value="${esc(a)}">`).join('')}</datalist><datalist id="dlEq">${eqs.map(a=>`<option value="${esc(a)}">${L[a]?esc(L[a][0]):''}</option>`).join('')}</datalist>
   <div class="card"><h2><span class="num">1</span>Où et quoi</h2>
     <div class="two">${fi('date','Date',{type:'date'})}${fi('atelier','Atelier / zone',{list:'dlAt'})}</div>
     ${fi('equip','Équipement / repère',{list:'dlEq',ph:'ex. F5708 - Ppe cdts RGT'})}${fi('lieu','Localisation précise',{ph:'ex. 2e étage, côté SNCF'})}${fi('demandeur','Avec qui (demandeur, exploitant)')}
@@ -183,7 +190,10 @@ function renderEdit(){const v=V[cur];const on=new Set(v.metiers.map(m=>m.m));
 /* liaison */
 const app=$('#app');
 app.addEventListener('input',e=>{const t=e.target,v=V[cur];if(!v||!t.dataset.p)return;setP(v,t.dataset.p,t.value);touch(v);if(t.dataset.p==='equip')$('#title').textContent=title(v);});
-app.addEventListener('change',e=>{const t=e.target,v=V[cur];if(!v||!t.dataset.c)return;setP(v,t.dataset.c,t.checked);touch(v);keep(renderEdit);});
+app.addEventListener('change',e=>{const t=e.target,v=V[cur];
+  if(v&&t.dataset.p==='equip'){const q=eqFind(v.equip);if(q){let ch=0;if(q.zone&&!String(v.atelier||'').trim()){v.atelier=q.zone;ch=1;}if(q.lieu&&!String(v.lieu||'').trim()){v.lieu=q.lieu;ch=1;}
+    if(ch){touch(v);['atelier','lieu'].forEach(k=>{const i=app.querySelector(`[data-p="${k}"]`);if(i)i.value=v[k];});toast('📍 Emplacement repris de la base');}}return;}
+  if(!v||!t.dataset.c)return;setP(v,t.dataset.c,t.checked);touch(v);keep(renderEdit);});
 app.addEventListener('click',e=>{const v=V[cur];if(!v)return;const b=e.target.closest('[data-risk],[data-met],[data-pcdel],[data-pdel],[data-ann],#pcAdd,#vDel,#metOther');if(!b)return;
   if(b.dataset.risk){v.risques[b.dataset.risk]=!v.risques[b.dataset.risk];}
   else if(b.dataset.met){const i=v.metiers.findIndex(m=>m.m===b.dataset.met);if(i>=0)v.metiers.splice(i,1);else v.metiers.push({m:b.dataset.met,n:'',h:'',note:''});}
@@ -240,7 +250,7 @@ function summary(v){const L=[`Visite de chantier du ${frDate(v.date)}${v.auteur?
   if(v.metiers.length)L.push('Métiers : '+v.metiers.map(m=>`${m.m}${m.n||m.h?` (${m.n||'?'} pers. × ${m.h||'?'} h)`:''}`).join(', '));
   if(v.echaf.need)L.push('Échafaudage : oui'+(v.echaf.note?' – '+v.echaf.note:''));
   if(v.pieces.length)L.push('Pièces : '+v.pieces.filter(p=>p.des).map(p=>`${p.q||1} × ${p.des}`).join(', '));
-  L.push('',`${v.photos.length} photo(s). PDF joint : à importer dans Prépa chantiers (onglet Visites).`);return L.filter((x,i,a)=>!(x===''&&a[i-1]==='')).join('\n');}
+  L.push('',`${v.photos.length} photo(s). PDF joint : à importer dans TOP PREPA (onglet Visites).`);return L.filter((x,i,a)=>!(x===''&&a[i-1]==='')).join('\n');}
 /* ---------- PDF : compte rendu lisible + données importables dans Prépa chantiers ---------- */
 const HW=[278,278,355,556,556,889,667,191,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,1015,667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,469,556,333,556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,584];
 const CP={'€':0x80,'‚':0x82,'„':0x84,'…':0x85,'‘':0x91,'’':0x92,'“':0x93,'”':0x94,'•':0x95,'–':0x96,'—':0x97,'œ':0x9c,'Œ':0x8c,'Ÿ':0x9f};
@@ -298,7 +308,7 @@ async function makePDF(v){
   imgs.forEach((im,i)=>{const n=first+i;offs[n]=off;put(`${n} 0 obj\n<< /Type /XObject /Subtype /Image /Width ${im.W} /Height ${im.H} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${im.data.length} >>\nstream\n`);
     loc[i]={off,len:im.data.length};put(im.data);put('\nendstream\nendobj\n');});
   pages.forEach((p,i)=>{const pn=pgObj+2*i,cn=pn+1;
-    p.c+=`BT /F1 8 Tf 0.55 0.6 0.65 rg ${M} 22 Td ${pStr(`Visite chantier · ${title(v)} · page ${i+1}/${nPg}  —  fichier importable dans Prépa chantiers (onglet Visites)`)} Tj ET\n`;
+    p.c+=`BT /F1 8 Tf 0.55 0.6 0.65 rg ${M} 22 Td ${pStr(`Visite chantier · ${title(v)} · page ${i+1}/${nPg}  —  fichier importable dans TOP PREPA (onglet Visites)`)} Tj ET\n`;
     obj(pn,`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${W} ${H}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> /XObject << ${p.im.map(n=>`/Im${n} ${first+n} 0 R`).join(' ')} >> >> /Contents ${cn} 0 R >>`);
     const cs=l1(p.c);offs[cn]=off;put(`${cn} 0 obj\n<< /Length ${cs.length} >>\nstream\n`);put(cs);put('\nendstream\nendobj\n');});
   const data=Object.assign({},v,{statut:'À traiter',photos:v.photos.map((p,i)=>({id:p.id,legend:p.legend,off:loc[i].off,len:loc[i].len}))});
@@ -325,9 +335,12 @@ async function settings(){let est='';try{const q=await navigator.storage.estimat
   modal(`<h2>Réglages</h2><label class="f">Ton nom (auteur des visites)<input id="cfA" value="${esc(CFG.auteur)}"></label>
   <label class="sw">Garder une copie des photos prises dans « Téléchargements »<input type="checkbox" id="cfC"${CFG.copy?' checked':''}></label>
   <label class="f">Corps de métier proposés (un par ligne)<textarea id="cfM" rows="7">${esc(CFG.metiers.join('\n'))}</textarea></label>
+  <div class="f"><b>Équipements</b><p class="hint" style="margin:4px 0 8px">${Object.keys(EQ.list||{}).length?`${Object.keys(EQ.list).length} équipement(s) chargé(s) le ${new Date(EQ.ts).toLocaleDateString('fr-FR')}. Tape un repère dans une visite : l'atelier et l'emplacement se remplissent.`:'Aucune liste chargée. Sur le PC : TOP PREPA → Bases → « 📱 Pour le téléphone », envoie-toi le fichier puis ouvre-le ici.'}</p>
+   <label class="btn">📥 Charger la liste des équipements<input type="file" id="eqIn" accept=".json,application/json" hidden></label></div>
   <p class="hint">${est} · ${Object.keys(V).length} visite(s) sur ce téléphone. Fonctionne hors ligne.</p>
-  <p class="hint" style="border-top:1px solid var(--line);padding-top:10px">Visite chantier v1.2 — module mobile de <b>Prépa chantiers</b>.<br>Conçu et développé par Joffrey Haake. © 2026 Joffrey Haake — tous droits réservés. Toute reproduction, modification ou diffusion sans autorisation écrite de l'auteur est interdite.</p>
+  <p class="hint" style="border-top:1px solid var(--line);padding-top:10px">Visite chantier v1.3 — module mobile de <b>TOP PREPA</b>.<br>Conçu et développé par Joffrey Haake. © 2026 Joffrey Haake — tous droits réservés. Toute reproduction, modification ou diffusion sans autorisation écrite de l'auteur est interdite.</p>
   <div class="row"><button class="btn" data-close>Fermer</button><span class="sp"></span><button class="btn p" id="cfOk">Enregistrer</button></div>`,()=>{
+  $('#eqIn').onchange=async ev=>{const f=ev.target.files[0];if(f&&await eqImport(f)){closeModal();settings();}};
   $('#cfOk').onclick=()=>{CFG.auteur=$('#cfA').value.trim();CFG.copy=$('#cfC').checked;const m=$('#cfM').value.split('\n').map(x=>x.trim()).filter(Boolean);if(m.length)CFG.metiers=m;saveCfg();
     if(cur&&!V[cur].auteur){V[cur].auteur=CFG.auteur;touch(V[cur]);}closeModal();render();toast('Réglages enregistrés');};});}
 $('#menu').onclick=settings;
