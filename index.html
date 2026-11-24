@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- Visite chantier (Prépa chantiers) © 2026 Joffrey Haake. Tous droits réservés. Reproduction, modification ou diffusion interdites sans autorisation écrite de l'auteur. -->
 <html lang="fr">
 <head>
 <meta charset="utf-8">
@@ -153,7 +154,7 @@ function render(){const app=$('#app');$('#back').hidden=!cur;$('#bar').hidden=!c
 function renderList(){const L=Object.values(V).sort((a,b)=>b.ts-a.ts);
   $('#app').innerHTML=L.length?`<div class="vl">${L.map(v=>`<div class="vc" data-id="${v.id}"><div class="th" style="${v.photos[0]?`background-image:url(${v.photos[0].img})`:''}">${v.photos[0]?'':'📋'}</div>
     <div class="bd"><b>${esc(title(v))}</b><div class="hint">${frDate(v.date)} · 📷 ${v.photos.length}${v.atelier?' · '+esc(v.atelier):''}</div><div style="margin-top:4px"><span class="st" style="--c:${ST_C[v.statut]||'#9aa5b3'}">${esc(v.statut)}${v.sentAt&&v.statut==='Envoyée'?' le '+frDate(v.sentAt.slice(0,10)):''}</span></div></div></div>`).join('')}</div>
-    <p class="hint" style="text-align:center;margin-top:18px">Les visites restent sur le téléphone tant que tu ne les supprimes pas.</p>`
+    <p class="hint" style="text-align:center;margin-top:18px">Les visites restent sur le téléphone tant que tu ne les supprimes pas.</p><p class="hint" style="text-align:center;font-size:11.5px">Visite chantier v1.2 · © 2026 Joffrey Haake</p>`
     :`<div class="empty"><div class="big">🦺</div><p><b>Aucune visite.</b><br>Appuie sur « Nouvelle visite » sur le chantier.<br>Tout fonctionne sans réseau.</p></div>`;
   $$('.vc').forEach(c=>c.onclick=()=>go(c.dataset.id));}
 const fi=(p,l,o={})=>`<label class="f">${l}<input data-p="${p}" value="${esc(getP(V[cur],p))}"${o.type?` type="${o.type}"`:''}${o.list?` list="${o.list}"`:''}${o.ph?` placeholder="${esc(o.ph)}"`:''}${o.im?` inputmode="${o.im}"`:''}></label>`;
@@ -325,6 +326,7 @@ async function settings(){let est='';try{const q=await navigator.storage.estimat
   <label class="sw">Garder une copie des photos prises dans « Téléchargements »<input type="checkbox" id="cfC"${CFG.copy?' checked':''}></label>
   <label class="f">Corps de métier proposés (un par ligne)<textarea id="cfM" rows="7">${esc(CFG.metiers.join('\n'))}</textarea></label>
   <p class="hint">${est} · ${Object.keys(V).length} visite(s) sur ce téléphone. Fonctionne hors ligne.</p>
+  <p class="hint" style="border-top:1px solid var(--line);padding-top:10px">Visite chantier v1.2 — module mobile de <b>Prépa chantiers</b>.<br>Conçu et développé par Joffrey Haake. © 2026 Joffrey Haake — tous droits réservés. Toute reproduction, modification ou diffusion sans autorisation écrite de l'auteur est interdite.</p>
   <div class="row"><button class="btn" data-close>Fermer</button><span class="sp"></span><button class="btn p" id="cfOk">Enregistrer</button></div>`,()=>{
   $('#cfOk').onclick=()=>{CFG.auteur=$('#cfA').value.trim();CFG.copy=$('#cfC').checked;const m=$('#cfM').value.split('\n').map(x=>x.trim()).filter(Boolean);if(m.length)CFG.metiers=m;saveCfg();
     if(cur&&!V[cur].auteur){V[cur].auteur=CFG.auteur;touch(V[cur]);}closeModal();render();toast('Réglages enregistrés');};});}
